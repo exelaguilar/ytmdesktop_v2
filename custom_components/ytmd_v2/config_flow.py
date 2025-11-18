@@ -6,10 +6,9 @@ import asyncio
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.components.persistent_notification import async_create, async_remove
-
+# NOTE: Removed direct imports for persistent_notification functions
 from .const import DOMAIN, DEFAULT_PORT, CONF_HOST, CONF_PORT, CONF_APP_NAME, CONF_APP_VERSION, CONF_TOKEN, CONF_APP_ID
-from .api_client import YTMDClient, YTMDConnectionError, YTMDAuthError # Import custom exceptions
+from .api_client import YTMDClient, YTMDConnectionError, YTMDAuthError 
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,6 +38,7 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         app_version = user_input.get(CONF_APP_VERSION)
         app_id = "ha-ytmd-v2"
 
+        # Create a temporary client for the config flow
         client = YTMDClient(self.hass, host, port, token=None)
         
         try:
@@ -52,6 +52,8 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 raise ValueError("No numeric code returned")
 
             _LOGGER.info("Numeric code received: %s", code)
+            
+            # Notify HA user to approve the code
             await self._show_approval_notification(code)
 
             # Step 2: wait until user approves code to get permanent token
@@ -64,7 +66,6 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if token:
                         break
                 except YTMDConnectionError:
-                    # Expected if token is not yet approved
                     _LOGGER.debug("Token request failed (waiting for approval)")
                 except Exception as exc:
                     _LOGGER.debug("Token request failed with unexpected error: %s", exc)
@@ -76,8 +77,13 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.error("Token was not approved in time")
                 raise ValueError("Token not approved")
 
-            # Remove the notification once token is retrieved
-            async_remove(self.hass, NOTIFICATION_ID)
+            # FIX: Use service call to dismiss the notification
+            await self.hass.services.async_call(
+                "persistent_notification", 
+                "dismiss", 
+                {"notification_id": NOTIFICATION_ID},
+                blocking=True,
+            )
             
             # Create data payload
             data = {
@@ -94,7 +100,6 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
         except (YTMDConnectionError, YTMDAuthError, ValueError) as exc:
-            # Catch all expected connection/auth/logic errors
             _LOGGER.exception("Config flow failed: %s", exc)
             return self.async_show_form(
                 step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors={"base": "connection"}
@@ -105,7 +110,7 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors={"base": "unknown"}
             )
         finally:
-            # IMPORTANT: Ensure the temporary client's session is closed
+            # Cleanup: Ensure the temporary client's session is closed
             await client.async_disconnect()
 
 
@@ -116,9 +121,14 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             f"**{code}**\n\n"
             "This is required to complete the Home Assistant integration."
         )
-        async_create(
-            self.hass,
-            message=message,
-            title="YTMDesktop Authorization Required",
-            notification_id=NOTIFICATION_ID,
+        # FIX: Use service call to create the notification
+        await self.hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "message": message,
+                "title": "YTMDesktop Authorization Required",
+                "notification_id": NOTIFICATION_ID,
+            },
+            blocking=True,
         )

@@ -58,10 +58,8 @@ class YTMDClient:
         """Handle non-200 HTTP responses."""
         if resp.status == 401:
             raise YTMDAuthError(f"Authorization failed for {url}. Check token.")
-        # Catch 4xx and 5xx errors as connection/API failure
         if resp.status >= 400:
             raise YTMDConnectionError(f"Request failed to {url} with status {resp.status}.")
-        # aiohttp's raise_for_status handles connection-level errors (timeout, DNS)
 
     async def async_request_code(self, app_name: str, app_version: str, app_id: str) -> Dict[str, Any]:
         """Request numeric authorization code from YTMDesktop."""
@@ -140,11 +138,9 @@ class YTMDClient:
         try:
             await self.async_get_state()
         except YTMDAuthError:
-            # Re-raise auth errors immediately as they are critical setup failures
             raise
         except (YTMDConnectionError, Exception) as exc:
             _LOGGER.debug("Could not fetch initial state: %s. Proceeding with socket connection.", exc)
-            # Do not re-raise simple connection errors here, as the socket connect might still work
 
         self._sio = socketio.AsyncClient(logger=False, reconnection=False, engineio_logger=False)
 
@@ -173,14 +169,11 @@ class YTMDClient:
         try:
             await self._sio.connect(self._ws_url, transports=["websocket"], auth=auth, namespaces=["/"])
         except Exception as exc:
-            # For the initial connect, raise a connection error if it fails
             if not self._connected:
                 _LOGGER.warning("Initial socket connection failed: %s", exc)
-                # Ensure session is closed before raising
                 await self.async_disconnect()
                 raise YTMDConnectionError(f"Initial connection to socket failed: {exc}") from exc
             else:
-                # If this happens during a reconnect attempt
                 _LOGGER.warning("Socket connect failed: %s", exc)
                 self._schedule_reconnect()
 
@@ -196,7 +189,6 @@ class YTMDClient:
     def _schedule_reconnect(self):
         if self._reconnect_task and not self._reconnect_task.done():
             return
-        # Use hass.loop.create_task for Home Assistant compatibility, though asyncio.create_task is fine.
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
     async def _reconnect_loop(self):
@@ -216,7 +208,6 @@ class YTMDClient:
             except Exception:
                 _LOGGER.exception("Error disconnecting socket")
         
-        # Cancel reconnect task if it exists
         if self._reconnect_task and not self._reconnect_task.done():
             self._reconnect_task.cancel()
         
