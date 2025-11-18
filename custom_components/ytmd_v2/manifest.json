@@ -8,7 +8,5 @@
     "python-socketio[asyncio_client]>=5.7.0"
   ],
   "codeowners": ["@exelaguilar"],
-  "iot_class": "local_push",
-  "integration_type": "device",
-  "loggers": ["custom_components.ytmd_v2"]
+  "iot_class": "local_push"
 }
