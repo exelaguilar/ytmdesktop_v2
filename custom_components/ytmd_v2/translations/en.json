@@ -1,0 +1,12 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to YTMDesktop"
+      },
+      "authorize": {
+        "title": "Authorize with YTMDesktop"
+      }
+    }
+  }
+}

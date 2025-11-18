@@ -1,0 +1,12 @@
+{
+  "domain": "ytmd_v2",
+  "name": "YTMDesktop (v2) Remote",
+  "version": "0.1.0",
+  "documentation": "https://github.com/ytmdesktop/ytmdesktop",
+  "requirements": [
+    "aiohttp>=3.8.0",
+    "python-socketio[asyncio_client]>=5.7.0"
+  ],
+  "dependencies": [],
+  "codeowners": []
+}

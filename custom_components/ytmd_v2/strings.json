@@ -1,0 +1,18 @@
+{
+  "title": "YTMDesktop (v2) Remote",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to YTMDesktop",
+        "description": "Enter the host and port where YTMDesktop companion server is running (defaults are localhost:9863)."
+      },
+      "authorize": {
+        "title": "Authorize with YTMDesktop",
+        "description": "Open YTMDesktop on the host and enter the code {code} (or accept the request) to allow Home Assistant to control playback.",
+        "data": {
+          "confirm": "I have authorized YTMDesktop"
+        }
+      }
+    }
+  }
+}

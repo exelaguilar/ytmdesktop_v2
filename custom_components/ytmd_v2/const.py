@@ -1,0 +1,9 @@
+DOMAIN = "ytmd_v2"
+DEFAULT_PORT = 9863
+API_BASE = "/api/v1"
+CONF_HOST = "host"
+CONF_PORT = "port"
+CONF_TOKEN = "token"
+CONF_APP_ID = "app_id"
+CONF_APP_NAME = "app_name"
+CONF_APP_VERSION = "app_version"
