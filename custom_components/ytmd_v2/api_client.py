@@ -1,15 +1,12 @@
 """Async client for YTMDesktop v2 Companion Server API."""
 
-from __future__ import annotations
 import asyncio
 import logging
 from typing import Any, Dict, Optional
 
 import aiohttp
 import socketio
-
 from homeassistant.core import HomeAssistant
-
 from .const import API_BASE
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,8 +22,6 @@ class YTMDClient:
         self._connected = False
         self._state: Dict[str, Any] = {}
         self._listeners = []
-
-        # reconnect/backoff
         self._reconnect_task = None
         self._reconnect_delay = 1
 
@@ -38,8 +33,7 @@ class YTMDClient:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
 
-    async def async_request_code(self, app_name: str = "HA YTMDesktop Integration", app_version: str = "0.1") -> Dict[str, Any]:
-        """Call POST /auth/requestcode to get authorization code object."""
+    async def async_request_code(self, app_name="HA YTMDesktop Integration", app_version="0.1") -> Dict[str, Any]:
         await self._ensure_session()
         url = f"{self.base_url}/auth/requestcode"
         payload = {"appName": app_name, "appVersion": app_version}
@@ -47,8 +41,7 @@ class YTMDClient:
             resp.raise_for_status()
             return await resp.json()
 
-    async def async_request_token(self, code: str, app_name: str = "HA YTMDesktop Integration", app_version: str = "0.1") -> Dict[str, Any]:
-        """Call POST /auth/request to exchange code for token."""
+    async def async_request_token(self, code: str, app_name="HA YTMDesktop Integration", app_version="0.1") -> Dict[str, Any]:
         await self._ensure_session()
         url = f"{self.base_url}/auth/request"
         payload = {"code": code, "appName": app_name, "appVersion": app_version}
@@ -69,7 +62,6 @@ class YTMDClient:
             return data
 
     async def async_post_command(self, command: str, data: Optional[Any] = None) -> Dict[str, Any]:
-        """POST /command with { command, data }."""
         await self._ensure_session()
         url = f"{self.base_url}/command"
         headers = {}
@@ -83,18 +75,16 @@ class YTMDClient:
             return await resp.json()
 
     async def async_connect(self):
-        """Start the socket.io realtime connection and initial state fetch."""
         if self._connected:
             return
         await self._ensure_session()
 
-        # initial full state
+        # Fetch initial state
         try:
             await self.async_get_state()
         except Exception as exc:
             _LOGGER.debug("Could not fetch initial state: %s", exc)
 
-        # start socketio client
         self._sio = socketio.AsyncClient(logger=False, reconnection=False, engineio_logger=False)
 
         @self._sio.event
@@ -107,27 +97,23 @@ class YTMDClient:
         async def disconnect():
             _LOGGER.warning("Disconnected from YTMD realtime socket")
             self._connected = False
-            # schedule reconnect
             self._schedule_reconnect()
 
         @self._sio.on("state-update")
         async def on_state_update(data):
-            _LOGGER.debug("Received state-update: %s", data)
             self._state = data
-            # notify listeners (entities)
             for cb in list(self._listeners):
                 try:
                     cb(data)
                 except Exception:
                     _LOGGER.exception("Listener callback failed")
 
-        # build ws url
         ws_url = f"http://{self.host}:{self.port}{API_BASE}/realtime"
         auth = {"token": self.token} if self.token else {}
         try:
             await self._sio.connect(ws_url, transports=["websocket"], auth=auth, namespaces=["/"])
         except Exception as exc:
-            _LOGGER.exception("Socket connect failed: %s", exc)
+            _LOGGER.warning("Socket connect failed: %s", exc)
             self._schedule_reconnect()
             return
 

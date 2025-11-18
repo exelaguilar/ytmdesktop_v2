@@ -1,13 +1,12 @@
 """YTMDesktop v2 Home Assistant integration."""
 
+import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
 from .api_client import YTMDClient
-import asyncio
-import logging
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,30 +17,31 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up the integration from a config entry."""
     host = entry.data.get("host")
     port = entry.data.get("port")
     token = entry.data.get("token")
-    app_id = entry.data.get("app_id")
     app_name = entry.data.get("app_name")
     app_version = entry.data.get("app_version")
 
     client = YTMDClient(hass, host, port, token)
     hass.data[DOMAIN][entry.entry_id] = client
 
-    await client.async_connect()
+    try:
+        await client.async_connect()
+    except Exception as e:
+        _LOGGER.warning("Failed to connect YTMDesktop client: %s", e)
 
     hass.config_entries.async_setup_platforms(entry, PLATFORMS)
 
-    # listen for unload
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     return True
 
-async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    # currently no options but keep placeholder
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry):
     _LOGGER.debug("Options updated for %s", entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    client: YTMDClient = hass.data[DOMAIN].get(entry.entry_id)
+    client = hass.data[DOMAIN].get(entry.entry_id)
     if client:
         await client.async_disconnect()
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
