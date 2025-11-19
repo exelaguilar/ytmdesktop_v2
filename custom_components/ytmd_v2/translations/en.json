@@ -1,12 +1,35 @@
 {
+  "title": "YTMDesktop (v2) Remote",
   "config": {
     "step": {
       "user": {
-        "title": "Connect to YTMDesktop"
+        "title": "Connect to YTMDesktop Server",
+        "description": "Enter the connection details for the YTMDesktop Companion Server (defaults are localhost:9863).",
+        "data": {
+          "host": "Host/IP Address",
+          "port": "Port",
+          "app_name": "Application Name (HA)",
+          "app_version": "Application Version"
+        }
       },
-      "authorize": {
-        "title": "Authorize with YTMDesktop"
+      "auth_check": {
+        "title": "Authorization Required",
+        "description": "**STEP 1: Check YTMDesktop App**\n\n**Home Assistant is now polling the server.** This should have triggered an approval request in your YTMDesktop application.\n\n**STEP 2: Verify Code**\n\nVerify that the code in the YTMDesktop app matches the code displayed here:\n\n**{code}**\n\n**STEP 3: Confirm Approval**\n\nOnce you have approved the request in the YTMDesktop application, check the box below and click SUBMIT.",
+        "data": {
+          "approved": "I have approved the code in YTMDesktop"
+        }
       }
+    },
+    "error": {
+      "connection": "Could not connect to the YTMDesktop server or request the authorization code.",
+      "not_approved": "You must check the box to confirm you have approved the code.",
+      "auth_timeout": "The code was not approved in time. Please start over.",
+      "unknown": "An unknown error occurred during the configuration process.",
+      "still_polling": "Polling for the permanent token is currently in progress. If you just approved the code, please wait a moment."
+    },
+    "abort": {
+      "auth_timeout": "The YTMDesktop application did not approve the token request within the allotted time. Please try again.",
+      "success": "Successfully configured YTMDesktop."
     }
   }
 }
