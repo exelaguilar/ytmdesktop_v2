@@ -37,9 +37,9 @@ class YTMDClient:
         self._auth_headers = {"Authorization": self.token} if self.token else {}
         
         self._sio_logger = logging.getLogger(f"{__name__}.socketio")
-        self._sio_logger.setLevel(logging.INFO) 
+        self._sio_logger.setLevel(logging.WARNING) 
         self._engineio_logger = logging.getLogger("engineio")
-        self._engineio_logger.setLevel(logging.INFO)
+        self._engineio_logger.setLevel(logging.WARNING)
 
     @property
     def base_url(self) -> str:
