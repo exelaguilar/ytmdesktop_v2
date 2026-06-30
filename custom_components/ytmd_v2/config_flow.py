@@ -4,46 +4,57 @@ import asyncio
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult, AbortFlow
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .const import (
-    DOMAIN, 
-    DEFAULT_PORT, 
-    CONF_HOST, 
-    CONF_PORT, 
-    CONF_APP_NAME, 
-    CONF_APP_VERSION, 
-    CONF_TOKEN, 
-    CONF_APP_ID
+    DOMAIN,
+    DEFAULT_PORT,
+    CONF_HOST,
+    CONF_PORT,
+    CONF_APP_NAME,
+    CONF_APP_VERSION,
+    CONF_TOKEN,
+    CONF_APP_ID,
 )
-from .api_client import YTMDClient, YTMDConnectionError, YTMDAuthError 
+from .api_client import YTMDClient, YTMDConnectionError, YTMDAuthError
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema({
-    vol.Required(CONF_HOST, default="localhost"): str,
-    vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
-    vol.Optional(CONF_APP_NAME, default="HA YTMDesktop Integration"): str,
-    vol.Optional(CONF_APP_VERSION, default="0.1.0"): str,
-})
+STEP_USER_DATA_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_HOST, default="localhost"): str,
+        vol.Optional(CONF_PORT, default=DEFAULT_PORT): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=65535)
+        ),
+        vol.Optional(CONF_APP_NAME, default="HA YTMDesktop Integration"): str,
+        vol.Optional(CONF_APP_VERSION, default="0.1.0"): str,
+    }
+)
 
 APPROVAL_TIMEOUT = 60
 RETRY_INTERVAL = 3
 
+
 class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_PUSH
-    
-    # State management between steps
-    _user_input: Optional[Dict[str, Any]] = None
-    _numeric_code: Optional[str] = None
-    _polling_task: Optional[asyncio.Task] = None
 
-    async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
+    def __init__(self) -> None:
+        """Initialize per-flow state."""
+        self._user_input: Optional[Dict[str, Any]] = None
+        self._numeric_code: Optional[str] = None
+        self._polling_task: Optional[asyncio.Task] = None
+        self._reauth_entry = None
+
+    async def async_step_user(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
         """Handle the initial step to gather connection info and request code."""
         if user_input is None:
             return self.async_show_form(step_id="user", data_schema=STEP_USER_DATA_SCHEMA)
 
+        user_input = dict(user_input)
+        user_input[CONF_HOST] = user_input[CONF_HOST].strip()
         self._user_input = user_input
         host = user_input[CONF_HOST]
         port = user_input.get(CONF_PORT, DEFAULT_PORT)
@@ -51,7 +62,9 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         app_version = user_input.get(CONF_APP_VERSION)
         app_id = "ha-ytmd-v2"
 
-        client = YTMDClient(self.hass, host, port, token=None)
+        client = YTMDClient(
+            self.hass, host, port, token=None, session=async_get_clientsession(self.hass)
+        )
         
         try:
             # STEP 1: Request code.
@@ -72,22 +85,28 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except (YTMDConnectionError, YTMDAuthError, ValueError) as exc:
             _LOGGER.exception("Config flow failed at user step: %s", exc)
             return self.async_show_form(
-                step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors={"base": "connection"}
+                step_id="user",
+                data_schema=STEP_USER_DATA_SCHEMA,
+                errors={"base": "connection"},
             )
         except Exception as exc:
             _LOGGER.exception("An unexpected error occurred during config flow.")
             return self.async_show_form(
-                step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors={"base": "unknown"}
+                step_id="user",
+                data_schema=STEP_USER_DATA_SCHEMA,
+                errors={"base": "unknown"},
             )
         finally:
             await client.async_disconnect()
 
-
-    async def async_step_auth_check(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
+    async def async_step_auth_check(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
         """Handle the authorization check and polling step."""
-        
+        if self._user_input is None or self._numeric_code is None:
+            return self.async_abort(reason="unknown")
+
         host = self._user_input[CONF_HOST]
-        port = self._user_input.get(CONF_PORT, DEFAULT_PORT)
         code = self._numeric_code
         
         if self._polling_task is None:
@@ -105,7 +124,7 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors = {"base": "not_approved"}
 
             return self.async_show_form(
-                step_id="auth_check", 
+                step_id="auth_check",
                 data_schema=vol.Schema({vol.Required("approved", default=False): bool}),
                 description_placeholders=description_placeholders,
                 errors=errors,
@@ -120,7 +139,20 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 token = self._polling_task.result()
                 if token:
                     # Successful poll result was stored on the flow by _async_poll_for_token
-                    return self.async_create_entry(title=f"YTMDesktop @ {host}", data=self._user_input)
+                    if self.source == config_entries.SOURCE_REAUTH:
+                        if self._reauth_entry is None:
+                            return self.async_abort(reason="unknown")
+                        self.hass.config_entries.async_update_entry(
+                            self._reauth_entry, data=dict(self._user_input)
+                        )
+                        await self.hass.config_entries.async_reload(
+                            self._reauth_entry.entry_id
+                        )
+                        return self.async_abort(reason="reauth_successful")
+
+                    return self.async_create_entry(
+                        title=f"YTMDesktop @ {host}", data=dict(self._user_input)
+                    )
                 else:
                     # Task returned None or something unexpected
                     raise AbortFlow("auth_timeout")
@@ -133,21 +165,25 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         # If the task is still running, refresh the form with a temporary message
         return self.async_show_form(
-            step_id="auth_check", 
+            step_id="auth_check",
             data_schema=vol.Schema({vol.Required("approved", default=False): bool}),
             description_placeholders=description_placeholders,
             errors={"base": "still_polling"},
         )
 
-
     async def _async_poll_for_token(self):
         """Background task to poll the API for the permanent token."""
+        if self._user_input is None or self._numeric_code is None:
+            raise AbortFlow("unknown")
+
         host = self._user_input[CONF_HOST]
         port = self._user_input.get(CONF_PORT, DEFAULT_PORT)
         app_id = "ha-ytmd-v2"
         code = self._numeric_code
         
-        client = YTMDClient(self.hass, host, port, token=None)
+        client = YTMDClient(
+            self.hass, host, port, token=None, session=async_get_clientsession(self.hass)
+        )
         
         token = None
         elapsed = 0
@@ -166,7 +202,7 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self.hass.async_create_task(
                             self.hass.config_entries.flow.async_configure(flow_id=self.flow_id)
                         )
-                        return token # Return token to the task result
+                        return token  # Return token to the task result
                     
                 except YTMDConnectionError:
                     _LOGGER.debug("Token request failed (waiting for approval)")
@@ -179,25 +215,54 @@ class YTMDConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.error("Token was not approved in time (Polling timeout).")
             raise AbortFlow("auth_timeout")
 
-        except Exception as exc:
+        except Exception:
             # If the task fails, notify the flow handler
             self.hass.async_create_task(
                 self.hass.config_entries.flow.async_configure(flow_id=self.flow_id)
             )
-            raise # Re-raise exception to be caught by the calling task
+            raise  # Re-raise exception to be caught by the calling task
         finally:
             await client.async_disconnect()
 
-
-    async def async_step_auth_check_reconfirm(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
+    async def async_step_auth_check_reconfirm(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
         # Re-using the primary step for simplicity.
         return await self.async_step_auth_check(user_input)
-        
-    async def async_step_reauth(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
-        """Handle reauthorization. Not fully implemented here, but good practice."""
-        return self.async_abort(reason="reauth_unsupported")
 
-    async def async_step_abort(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
+    async def async_step_reauth(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
+        """Handle reauthorization after the stored token stops working."""
+        self._reauth_entry = self.hass.config_entries.async_get_entry(
+            self.context["entry_id"]
+        )
+        if self._reauth_entry is None:
+            return self.async_abort(reason="unknown")
+
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
+        """Confirm that the user wants to start a new approval request."""
+        if self._reauth_entry is None:
+            return self.async_abort(reason="unknown")
+
+        if user_input is None:
+            return self.async_show_form(
+                step_id="reauth_confirm",
+                data_schema=vol.Schema({}),
+                description_placeholders={
+                    "host": self._reauth_entry.data.get(CONF_HOST, "YTMDesktop")
+                },
+            )
+
+        reauth_input = dict(self._reauth_entry.data)
+        reauth_input.pop(CONF_TOKEN, None)
+        return await self.async_step_user(reauth_input)
+
+    async def async_step_abort(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> FlowResult:
         """Cleanup logic when the flow aborts or finishes."""
         if self._polling_task and not self._polling_task.done():
             self._polling_task.cancel()

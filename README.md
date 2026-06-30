@@ -1,81 +1,78 @@
-# 🎵 Home Assistant - YTMDesktop (v2) Media Player
+# Home Assistant - YTMDesktop v2 Media Player
 
-This custom component provides a Home Assistant `media_player` entity for controlling and displaying the status of **YouTube Music Desktop App (YTMDesktop)** via its Companion Server API.
+This custom component provides a Home Assistant `media_player` entity for controlling and displaying the status of the YouTube Music Desktop App through the YTMDesktop Companion Server API.
 
-## ✨ Features
+## Features
 
-* **Real-time Status:** Uses Socket.IO (WebSockets) for immediate state updates, volume, and playback status.
-* **Smooth Progress:** Implements a local progress timer to ensure the media position bar updates smoothly in the Home Assistant UI, even between API state pushes.
-* **Full Control:** Supports standard media commands including Play, Pause, Next/Previous Track, Stop, Volume Set, Mute, Seek, Shuffle, and Repeat mode.
-* **Detailed Metadata:** Displays media title, artist, album, thumbnail, and like status.
+- Real-time status updates through Socket.IO.
+- Smooth local progress updates for the Home Assistant media position bar.
+- Standard media controls: play, pause, next, previous, stop, seek, volume, mute, shuffle, and repeat.
+- Media metadata including title, artist, album, thumbnail, like status, shuffle state, repeat mode, and current video ID.
+- Automatic reconnect attempts when the Companion Server or network connection becomes temporarily unavailable.
+- Home Assistant reauthorization flow when the stored Companion Server token is rejected.
 
----
+## Installation
 
-## 🚀 Installation (Recommended: HACS)
+### HACS
 
-The easiest way to install this integration is through the Home Assistant Community Store (HACS).
+1. In Home Assistant, go to **HACS** > **Integrations**.
+2. Open the three-dot menu in the top right and choose **Custom repositories**.
+3. Add this repository URL:
 
-1.  **Add Custom Repository:**
-    * In Home Assistant, navigate to **HACS** → **Integrations**.
-    * Click the **three dots menu** (top right) → **Custom Repositories**.
-    * Enter the URL of this repository: `https://github.com/exelaguilar/ytmdesktop_v2`
-    * Select Category: `Integration`.
-    * Click **Add**.
-2.  **Install Integration:**
-    * Search for "YTMDesktop" in HACS and click **Download**.
-3.  **Restart Home Assistant** to load the new component files.
+   `https://github.com/exelaguilar/ytmdesktop_v2`
 
-### Manual Installation (For Development/Testing)
+4. Select **Integration** as the category.
+5. Search for **YTMDesktop** in HACS and download it.
+6. Restart Home Assistant.
 
-1.  Copy all files from this repository's `custom_components/ytmd_v2/` folder into your Home Assistant's `custom_components/ytmd_v2/` directory.
-2.  Restart Home Assistant.
+### Manual Installation
 
----
+1. Copy the `custom_components/ytmd_v2/` folder from this repository into your Home Assistant `custom_components/ytmd_v2/` directory.
+2. Restart Home Assistant.
 
-## ⚙️ Configuration & Usage
+## YTMDesktop Companion Server Setup
 
-### 1. YTMDesktop Server Setup (Crucial!)
+Before adding the integration in Home Assistant, enable the Companion Server in YouTube Music Desktop:
 
-Before starting the Home Assistant configuration flow, you must enable the Companion Server in the YTMDesktop application:
+1. Open the YouTube Music Desktop App.
+2. Go to **Settings**.
+3. Open the **Integrations** tab.
+4. Enable the Companion Server options:
+   - Companion server, usually on port `9863`.
+   - Companion authorization.
+   - Browser communication.
 
-1.  Open the **YouTube Music Desktop App**.
-2.  Go to **Settings** (gear icon in the top right).
-3.  Navigate to the **Integrations** tab on the left menu.
-4.  Ensure the following options under the **Companion Server** section are **enabled**:
-    * **Companion server** (or similar, typically port `9863`).
-    * **Enable companion authorization.**
-    * **Allow browser communication.**
+## Home Assistant Setup
 
-### 2. Home Assistant Integration
+1. In Home Assistant, go to **Settings** > **Devices & services**.
+2. Click **Add integration**.
+3. Search for **YTMDesktop (v2) Remote**.
+4. Enter the Companion Server host and port.
+5. Home Assistant will request an authorization code from YTMDesktop.
+6. Confirm that the code shown in Home Assistant matches the approval code shown in YTMDesktop.
+7. Approve the request in YTMDesktop.
+8. Check **I have approved the code in YTMDesktop** in Home Assistant and submit.
 
-1.  In Home Assistant, navigate to **Settings** → **Devices & Services** → **Add Integration**.
-2.  Search for **YTMDesktop (v2) Remote** and select it.
-3.  **Enter Connection Details** (Host and Port).
-4.  **Authorization Step:**
-    * The integration will connect and request an authorization code, which triggers an approval popup in the YTMDesktop app.
-    * **Verify** the code in Home Assistant matches the code shown in the YTMDesktop app, **Approve** the request in the YTMDesktop app, and then check the "Approved" box and click **Submit** in Home Assistant.
-5.  Once approved, the final token will be exchanged, and the `media_player` entity will be created.
+After approval, Home Assistant stores the Companion Server token and creates the media player entity.
 
----
+## Reauthorization
 
-## ⚠️ Known Issues & Workarounds
+If YTMDesktop rejects the stored token, Home Assistant will mark the integration as needing reauthorization. Start the repair flow from **Settings** > **Repairs** or from the integration entry, then approve the new code in YTMDesktop.
 
-### Connection Drop Bug (Manual Reload Required)
+Reauthorization updates the existing integration entry. It does not create a second media player.
 
-If the network connection between Home Assistant and the YTMDesktop Companion Server is interrupted (e.g., computer sleeps, network drops), the entity may fail to automatically reconnect, even if the companion server is running again.
+## Connection Recovery
 
-**Workaround:**
+The integration automatically retries the Socket.IO connection with exponential backoff after disconnects. This helps recover from temporary network drops, app restarts, or a sleeping computer waking back up.
 
-If the media player entity becomes `unavailable` and does not automatically recover:
+If the entity remains unavailable after YTMDesktop is running again, reload the integration entry from **Settings** > **Devices & services**. That forces a full reconnect.
 
-1.  Navigate to **Settings** → **Devices & Services**.
-2.  Find the **YTMDesktop** integration entry.
-3.  Click the **three dots menu** → **Reload**.
+## Notes
 
-Reloading the integration entry will force a full re-initialization and reconnection.
+- The Companion Server must remain enabled in YTMDesktop.
+- The configured host and port must be reachable from Home Assistant.
+- This integration uses local network communication only.
 
----
-
-## 📜 License
+## License
 
 This project is licensed under the MIT License.

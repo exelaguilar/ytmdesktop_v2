@@ -18,6 +18,10 @@
         "data": {
           "approved": "I have approved the code in YTMDesktop"
         }
+      },
+      "reauth_confirm": {
+        "title": "Reauthorize YTMDesktop",
+        "description": "Home Assistant can no longer authenticate with the YTMDesktop Companion Server at {host}. Submit to request a new approval code in YTMDesktop."
       }
     },
     "error": {
@@ -29,6 +33,7 @@
     },
     "abort": {
       "auth_timeout": "The YTMDesktop application did not approve the token request within the allotted time. Please try again.",
+      "reauth_successful": "YTMDesktop was successfully reauthorized.",
       "success": "Successfully configured YTMDesktop."
     }
   }

@@ -1,8 +1,8 @@
 """YTMDesktop v2 Home Assistant media_player entity (HA 2024.12+)."""
 
 import logging
-from typing import Any, Dict, Optional, Callable
 from datetime import timedelta
+from typing import Any, Callable, Dict, Optional
 
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
@@ -45,7 +45,16 @@ def _get_thumbnail_url(thumbnails: Optional[list]) -> Optional[str]:
     if not thumbnails or not isinstance(thumbnails, list):
         return None
     last_thumbnail = thumbnails[-1]
-    return last_thumbnail.get("url") if last_thumbnail else None
+    if not isinstance(last_thumbnail, dict):
+        return None
+    return last_thumbnail.get("url")
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 async def async_setup_entry(
@@ -113,6 +122,11 @@ class YTMDMediaPlayer(MediaPlayerEntity):
         self._unsub_progress: Optional[Callable[[], None]] = None
         self._pending_write: bool = False
 
+    def _schedule_state_write(self) -> None:
+        if not self._pending_write:
+            self._pending_write = True
+            self.hass.loop.call_soon_threadsafe(self._write_state)
+
     async def async_added_to_hass(self) -> None:
         self._client.add_listener(self._on_state_update)
         self._start_progress_timer()
@@ -150,9 +164,7 @@ class YTMDMediaPlayer(MediaPlayerEntity):
             if abs(new_position - self._position) >= 0.5:
                 self._position = new_position
                 self._attr_media_position_updated_at = utcnow()
-                if not self._pending_write:
-                    self._pending_write = True
-                    self.hass.loop.call_soon_threadsafe(self._write_state)
+                self._schedule_state_write()
 
     @callback
     def _write_state(self) -> None:
@@ -215,14 +227,15 @@ class YTMDMediaPlayer(MediaPlayerEntity):
             # Position
             new_position = player.get("videoProgress")
             if new_position is not None and new_position != self._position:
-                self._position = float(new_position)
+                self._position = _as_float(new_position, self._position)
                 self._attr_media_position_updated_at = utcnow()
                 changed = True
 
             # Duration
             new_duration = video.get("durationSeconds") or 0.0
-            if float(new_duration) != float(self._duration):
-                self._duration = float(new_duration)
+            new_duration_float = _as_float(new_duration)
+            if new_duration_float != self._duration:
+                self._duration = new_duration_float
                 changed = True
 
             # Video metadata
@@ -233,7 +246,9 @@ class YTMDMediaPlayer(MediaPlayerEntity):
                     changed = True
 
                 title = video.get("title")
-                author = video.get("author") or (selected_item.get("author") if selected_item else None)
+                author = video.get("author") or (
+                    selected_item.get("author") if selected_item else None
+                )
                 album = video.get("album")
                 like_status = video.get("likeStatus")
                 thumb = _get_thumbnail_url(video.get("thumbnails")) or (
@@ -251,14 +266,20 @@ class YTMDMediaPlayer(MediaPlayerEntity):
                         setattr(self, attr, value)
                         changed = True
             else:
-                for attr in ["_current_video_id", "_media_title", "_media_artist", "_media_album", "_like_status", "_attr_media_image_url"]:
+                for attr in [
+                    "_current_video_id",
+                    "_media_title",
+                    "_media_artist",
+                    "_media_album",
+                    "_like_status",
+                    "_attr_media_image_url",
+                ]:
                     if getattr(self, attr) is not None:
                         setattr(self, attr, None)
                         changed = True
 
-            if changed and not self._pending_write:
-                self._pending_write = True
-                self.hass.loop.call_soon_threadsafe(self._write_state)
+            if changed:
+                self._schedule_state_write()
 
         except Exception:
             _LOGGER.exception("Failed to process state-update callback.")
@@ -301,6 +322,20 @@ class YTMDMediaPlayer(MediaPlayerEntity):
         return self._media_album
 
     @property
+    def shuffle(self) -> Optional[bool]:
+        return self._shuffle
+
+    @property
+    def repeat(self) -> Optional[RepeatMode]:
+        if self._repeat == 0:
+            return RepeatMode.OFF
+        if self._repeat == 1:
+            return RepeatMode.ALL
+        if self._repeat == 2:
+            return RepeatMode.ONE
+        return None
+
+    @property
     def media_content_type(self) -> MediaType:
         return MediaType.MUSIC
 
@@ -338,20 +373,18 @@ class YTMDMediaPlayer(MediaPlayerEntity):
         await self._safe_command("previous")
 
     async def async_set_volume_level(self, volume: float) -> None:
+        volume = min(1.0, max(0.0, volume))
         await self._safe_command("setVolume", int(volume * 100))
 
     async def async_volume_mute(self, is_volume_muted: bool) -> None:
         """Mute/unmute respecting YTMD API."""
-        if self._attr_is_volume_muted is None:
-            return
-
-        if is_volume_muted and not self._attr_is_volume_muted:
+        if is_volume_muted and self._attr_is_volume_muted is not True:
             await self._safe_command("mute")
-        elif not is_volume_muted and self._attr_is_volume_muted:
+        elif not is_volume_muted and self._attr_is_volume_muted is not False:
             await self._safe_command("unmute")
 
     async def async_media_seek(self, position: float) -> None:
-        await self._safe_command("seekTo", int(position))
+        await self._safe_command("seekTo", max(0, int(position)))
 
     async def async_set_repeat(self, repeat: RepeatMode) -> None:
         """Set repeat mode correctly for YTMD v2 API."""
@@ -366,6 +399,8 @@ class YTMDMediaPlayer(MediaPlayerEntity):
         await self._safe_command("repeatMode", mode)
 
     async def async_set_shuffle(self, shuffle: bool) -> None:
+        if self._shuffle is shuffle:
+            return
         await self._safe_command("shuffle")
 
     async def async_toggle_like(self, like: bool) -> None:
